@@ -57,14 +57,18 @@ class AppInterceptorAccessibilityService : AccessibilityService() {
             notificationTimeout = NOTIFICATION_TIMEOUT_MS
         }
         serviceInfo = info
+        Log.d(TAG, "Accessibility service connected")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
 
         val packageName = event.packageName?.toString() ?: return
-        if (filter.shouldIgnore(packageName)) return
 
+        // Track every foreground change - including ignored ones like the
+        // launcher or our own app - so that e.g. Instagram -> Home ->
+        // Instagram is still recognized as "Instagram came to the front
+        // again", not as "still the same app as before".
         val now = SystemClock.elapsedRealtime()
         if (packageName == lastPackageName && now - lastEventUptimeMillis < DEBOUNCE_MS) return
         val isNewForegroundApp = packageName != lastPackageName
@@ -72,6 +76,9 @@ class AppInterceptorAccessibilityService : AccessibilityService() {
         lastEventUptimeMillis = now
 
         if (!isNewForegroundApp) return
+        Log.d(TAG, "Foreground app changed to $packageName")
+
+        if (filter.shouldIgnore(packageName)) return
         if (overlayManager.isShowing) return
 
         handleForegroundApp(packageName)
@@ -81,19 +88,32 @@ class AppInterceptorAccessibilityService : AccessibilityService() {
         val scope = serviceScope ?: return
         scope.launch {
             val settings = ServiceLocator.settingsDataStore.settingsFlow.first()
-            if (!settings.interceptorEnabled) return@launch
+            if (!settings.interceptorEnabled) {
+                Log.d(TAG, "Interceptor is disabled in settings, skipping $packageName")
+                return@launch
+            }
 
             val monitoredRepo = ServiceLocator.monitoredAppRepository
-            if (!monitoredRepo.isMonitored(packageName)) return@launch
-            if (monitoredRepo.isSnoozed(packageName, System.currentTimeMillis())) return@launch
+            if (!monitoredRepo.isMonitored(packageName)) {
+                Log.d(TAG, "$packageName is not monitored, skipping")
+                return@launch
+            }
+            if (monitoredRepo.isSnoozed(packageName, System.currentTimeMillis())) {
+                Log.d(TAG, "$packageName is still within its grace period, skipping")
+                return@launch
+            }
 
             val appLabel = resolveAppLabel(packageName)
 
             withContext(Dispatchers.Main) {
                 // Re-check: the foreground app may have already changed again
                 // by the time this coroutine hop completes.
-                if (packageName != lastPackageName) return@withContext
+                if (packageName != lastPackageName) {
+                    Log.d(TAG, "$packageName is no longer in the foreground, not showing overlay")
+                    return@withContext
+                }
 
+                Log.d(TAG, "Showing interceptor overlay for $packageName")
                 overlayManager.show(
                     appLabel = appLabel,
                     breathingSeconds = settings.breathingSeconds,
