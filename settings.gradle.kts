@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "OneSecInterceptor"
+rootProject.name = "AppInterceptor"
 include(":app")

@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">One Sec Interceptor</string>
-    <string name="accessibility_service_label">App-Interceptor</string>
-    <string name="accessibility_service_description">Erkennt, wenn eine überwachte App (z. B. Instagram oder TikTok) in den Vordergrund kommt, damit eine kurze Innehalten-Pause eingeblendet werden kann.</string>
+    <string name="app_name">App Interceptor</string>
+    <string name="accessibility_service_description">Erkennt, wenn eine von dir überwachte App (z. B. Instagram oder TikTok) geöffnet wird, und zeigt eine Atempause an, bevor du die App bewusst öffnest. Es werden keine Bildschirminhalte gelesen oder gespeichert.</string>
 </resources>

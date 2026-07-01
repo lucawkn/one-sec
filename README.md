@@ -1,110 +1,99 @@
-# One Sec Interceptor
+# App Interceptor
 
-Ein nativer Android "App-Interceptor" (Kotlin, Jetpack Compose), der bewusstes
-Nutzen von Apps wie Instagram oder TikTok fördert: Sobald eine ausgewählte App
-in den Vordergrund kommt, legt sich eine kurze Atempause mit anschließender
-Rückfrage darüber, bevor die App tatsächlich benutzt werden kann.
-
-Nur für den privaten Gebrauch / Sideloading gedacht (kein Play-Store-Ziel).
+Native Android-App (Kotlin, Jetpack Compose), die das Öffnen ausgewählter Apps
+(Instagram, TikTok, …) mit einer 10-sekündigen Atempause unterbricht – für
+bewusstere Handynutzung. Optimiert für Xiaomi Redmi 13 Pro (MIUI/HyperOS).
 
 ## Funktionsweise
 
-1. **App-Auswahl** (Tab "Apps"): Liste aller startbaren Apps auf dem Gerät,
-   mit Schaltern zum Markieren als "überwacht".
-2. **Erkennung**: Ein `AccessibilityService` beobachtet
-   `TYPE_WINDOW_STATE_CHANGED`-Events und erkennt so App-Wechsel.
-3. **Unterbrechung**: Kommt eine überwachte App in den Vordergrund, legt sich
-   sofort ein Vollbild-Overlay (`SYSTEM_ALERT_WINDOW`) darüber: 10 Sekunden
-   (konfigurierbar) pulsierender Atem-Kreis mit Countdown, danach die
-   Rückfrage "Möchtest du [App] wirklich öffnen?".
-4. **Ja, öffnen**: Overlay schließt, App bleibt für eine konfigurierbare
-   Ruhezeit (Standard 5 Minuten) von weiteren Unterbrechungen ausgenommen.
-5. **Nein**: Nutzer landet auf dem Homescreen.
-6. **Statistik** (Tab "Statistik"): Wie oft eine App geöffnet vs. abgebrochen
-   wurde, gefiltert nach Heute / Diese Woche / Gesamt.
+- Ein **AccessibilityService** (`InterceptorService`) erkennt Vordergrund-Wechsel
+  über `TYPE_WINDOW_STATE_CHANGED`-Events.
+- Bei einer überwachten App legt sich ein **Vollbild-Overlay** darüber:
+  10 Sekunden Atemanimation ("Ein… / Aus…"), danach die Frage
+  "Möchtest du [App] wirklich öffnen?".
+- **Ja** → App wird freigegeben und für den konfigurierten Cooldown
+  (Standard 5 min, einstellbar 1–30 min) nicht erneut unterbrochen.
+- **Nein** → `GLOBAL_ACTION_HOME`, zurück zum Homescreen.
+- Jede Entscheidung wird lokal in einer Room-Datenbank gespeichert
+  (Statistik-Screen: heute / letzte 7 Tage).
 
-## Zuverlässige Erkennung von App-Wechseln
+### Warum TYPE_ACCESSIBILITY_OVERLAY?
 
-`AppInterceptorAccessibilityService` reagiert nur auf
-`TYPE_WINDOW_STATE_CHANGED`-Events und leitet daraus die aktuell im
-Vordergrund stehende App (`event.packageName`) ab. Um Fehlalarme zu
-vermeiden:
+Das Overlay nutzt primär `TYPE_ACCESSIBILITY_OVERLAY` statt
+`TYPE_APPLICATION_OVERLAY`. Dieser Fenstertyp gehört zum AccessibilityService
+und wird von MIUIs "Popup im Hintergrund"-Sperre in der Regel **nicht**
+blockiert. `TYPE_APPLICATION_OVERLAY` (klassisches `SYSTEM_ALERT_WINDOW`)
+ist als Fallback implementiert. Trotzdem führt das Onboarding durch alle
+MIUI-Berechtigungen, weil sich MIUI-Versionen unterschiedlich verhalten.
 
-- **Deduplizierung**: Es wird nur reagiert, wenn sich das Package gegenüber
-  dem zuletzt gesehenen tatsächlich ändert - die vielen Events, die eine App
-  für ihre eigenen Unterfenster/Activities feuert, werden ignoriert.
-- **Debounce** (300 ms): Fängt Bursts von Events während eines einzelnen
-  Übergangs ab (z. B. Splashscreen gefolgt von der Hauptactivity).
-- **`ForegroundAppFilter`**: Blendet Packages aus, die nie sinnvoll "geöffnet"
-  werden - die eigene App/das eigene Overlay, den aktuellen Standard-Launcher
-  (dynamisch über `Intent.ACTION_MAIN`/`CATEGORY_HOME` aufgelöst) und bekannte
-  Systempakete (`com.android.systemui`, Tastaturen, ...).
-- **Grace-Period-Check**: Selbst für überwachte Apps wird die Sperre
-  übersprungen, solange die App noch innerhalb ihrer Ruhezeit aus einem
-  vorherigen "Ja, öffnen" liegt (`SnoozedAppEntity` in Room).
+## Build & Installation (Redmi 13 Pro)
 
-Das Overlay-Fenster selbst löst keine eigenen `TYPE_WINDOW_STATE_CHANGED`-
-Events mit fremdem Package-Namen aus, die einen erneuten Trigger verursachen
-könnten.
+1. Projekt in **Android Studio** öffnen (`File > Open` → dieser Ordner).
+   Gradle 8.9 / AGP 8.5.2 / Kotlin 2.0.20 – der Wrapper lädt Gradle selbst.
+   `local.properties` mit dem SDK-Pfad legt Android Studio automatisch an.
+2. Auf dem Telefon: **Einstellungen > Mein Gerät > Alle Spezifikationen** →
+   7× auf "OS-Version" tippen → Entwickleroptionen aktiv.
+3. **Einstellungen > Weitere Einstellungen > Entwickleroptionen**:
+   - "USB-Debugging" aktivieren
+   - "Über USB installieren" aktivieren (MIUI verlangt dafür ggf. eine
+     eingelegte SIM-Karte und/oder Mi-Konto-Anmeldung)
+   - optional "USB-Debugging (Sicherheitseinstellungen)" für spätere Tests
+4. Telefon per USB verbinden, Debugging-Prompt bestätigen, in Android Studio
+   **Run ▶** (oder `gradlew.bat :app:installDebug`).
+
+## Ersteinrichtung auf dem Gerät (wichtig!)
+
+Beim ersten Start führt das Onboarding durch alle Schritte. Die kritischsten:
+
+1. **Bedienungshilfen-Dienst** aktivieren. Auf Android 13+ ist der Schalter
+   bei sideloaded Apps zunächst gesperrt ("Eingeschränkte Einstellung"):
+   Einstellungen > Apps > App Interceptor > ⋮-Menü > "Eingeschränkte
+   Einstellungen zulassen" – erst danach lässt sich der Dienst einschalten.
+2. **MIUI "Weitere Berechtigungen"**: beide Popup-Einträge erlauben
+   ("Popup-Fenster anzeigen" und "… während die App im Hintergrund läuft").
+3. **Autostart** in der Security-App erlauben.
+4. **Akku**: "Keine Einschränkungen" für die App.
+5. App in der Übersicht der letzten Apps **sperren** (Schloss-Symbol), damit
+   MIUI sie nicht wegräumt.
+
+Der Home-Screen der App enthält einen **Health-Check**, der bei jedem Öffnen
+prüft, ob alles noch aktiv ist (MIUI deaktiviert Dienste gern nach Updates),
+und Deep-Links zum Beheben anbietet. Nach einem Neustart prüft ein
+`BOOT_COMPLETED`-Receiver den Dienststatus und warnt per Notification.
 
 ## Projektstruktur
 
 ```
-app/src/main/java/com/onesec/interceptor/
-├── OneSecApp.kt                  Application-Klasse, initialisiert ServiceLocator
-├── di/ServiceLocator.kt          Manuelles DI (kein Hilt nötig für dieses Projekt)
+app/src/main/java/com/luca/appinterceptor/
+├── App.kt                        Application, initialisiert Graph + Notification-Channel
+├── boot/BootReceiver.kt          Warnung nach Reboot, falls Dienst deaktiviert
 ├── data/
-│   ├── local/                    Room: Entities, DAOs, AppDatabase
-│   ├── repository/               MonitoredAppRepository, StatsRepository
-│   └── settings/                 SettingsDataStore (Preferences DataStore)
-├── model/InstalledAppInfo.kt
-├── util/                         InstalledAppsProvider, PermissionUtils
-├── service/
-│   ├── AppInterceptorAccessibilityService.kt
-│   └── ForegroundAppFilter.kt
+│   ├── Graph.kt                  Mini-Service-Locator (Settings + DB)
+│   ├── SettingsRepository.kt     DataStore: überwachte Apps, Cooldown, Onboarding
+│   └── AppDatabase.kt            Room: InterceptEvent + EventDao
+├── service/InterceptorService.kt AccessibilityService, Kern der Erkennung
 ├── overlay/
-│   ├── OverlayManager.kt          WindowManager-Overlay-Verwaltung
-│   ├── OverlayLifecycleOwner.kt   Lifecycle/SavedState/ViewModelStore für Compose außerhalb einer Activity
-│   └── InterceptorOverlayContent.kt  Atem-Animation + Bestätigungsdialog (Compose)
-└── ui/
-    ├── MainActivity.kt, navigation/, theme/
-    ├── onboarding/                Berechtigungs-Onboarding mit Deep-Links zu den Systemeinstellungen
-    ├── appselection/              App-Auswahl-Screen
-    ├── settings/                  Ruhezeit, Atemdauer, Master-Schalter
-    └── stats/                     Statistik-Screen
+│   ├── OverlayController.kt      WindowManager-Overlay (Accessibility/App-Overlay)
+│   ├── OverlayLifecycleOwner.kt  Lifecycle-Bridge für ComposeView ohne Activity
+│   └── OverlayScreen.kt          Atemanimation + Entscheidungsdialog
+├── ui/
+│   ├── MainActivity.kt           Navigation (home/onboarding/apps/stats)
+│   ├── home/HomeScreen.kt        Health-Check + Einstellungen
+│   ├── onboarding/OnboardingScreen.kt  MIUI-Permission-Flow mit Deep-Links
+│   ├── apps/AppSelectionScreen.kt      Installierte Apps, Mehrfachauswahl
+│   └── stats/StatsScreen.kt      Geöffnet vs. abgebrochen (heute/7 Tage)
+└── util/
+    ├── MiuiIntents.kt            Xiaomi-Deep-Links mit Fallback-Kaskade
+    ├── PermissionChecks.kt       inkl. MIUI-AppOp 10021 (Popup im Hintergrund)
+    └── Notifications.kt
 ```
 
-Persistenz: **Room** für überwachte Apps, Intercept-Events (Statistik) und
-Snooze-Status; **DataStore (Preferences)** für globale Einstellungen
-(Master-Schalter, Ruhezeit, Atemdauer).
+## Bekannte Grenzen
 
-## Projekt öffnen & auf dem Gerät installieren
-
-Voraussetzung: [Android Studio](https://developer.android.com/studio)
-(inkl. Android SDK), ein Gerät mit aktiviertem USB-Debugging.
-
-1. Projekt in Android Studio öffnen (diesen Ordner auswählen). Android
-   Studio lädt beim ersten Öffnen automatisch die passende Gradle-Distribution
-   über den mitgelieferten Wrapper (`./gradlew`).
-2. Gerät per USB anschließen, USB-Debugging bestätigen.
-3. "Run" (▶) in Android Studio auf das Zielgerät ausführen - oder per
-   Kommandozeile:
-
-   ```bash
-   ./gradlew installDebug
-   ```
-
-4. Nach der Installation in der App:
-   - Tab **Status**: Bedienungshilfe aktivieren (führt in die
-     Systemeinstellungen) und Overlay-Berechtigung erteilen.
-   - Tab **Apps**: gewünschte Apps als überwacht markieren.
-   - Tab **Einstellungen**: Ruhezeit / Atemdauer bei Bedarf anpassen.
-
-## Hinweis zu dieser Umgebung
-
-Dieses Projekt wurde in einer Sandbox ohne Zugriff auf das Android SDK / die
-Google-Maven-Repositories erstellt - ein `gradle build` konnte hier deshalb
-nicht ausgeführt werden. Der komplette Quellcode und das Gradle-Setup
-(inkl. generiertem Wrapper) sind vorhanden; der erste Build/Sync sollte in
-Android Studio auf deinem Rechner erfolgen, wo der Zugriff auf
-`dl.google.com` und `services.gradle.org` gegeben ist.
+- Die MIUI-Popup-Prüfung (AppOp 10021) ist eine undokumentierte Heuristik –
+  auf manchen HyperOS-Versionen liefert sie kein Ergebnis (Status "ℹ" =
+  manuell prüfen).
+- Die Xiaomi-Deep-Links variieren je nach Version; schlägt einer fehl, zeigt
+  die App die manuelle Anleitung an.
+- Der Autostart-Status ist programmatisch nicht abfragbar (MIUI bietet keine
+  öffentliche API), daher dort nur Anleitung + Deep-Link.
